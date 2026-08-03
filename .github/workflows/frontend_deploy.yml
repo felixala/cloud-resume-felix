@@ -1,0 +1,98 @@
+name: Deploy Frontend to Amazon S3
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "website/**"
+      - ".github/workflows/frontend_deploy.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cloud-resume-frontend-production
+  cancel-in-progress: true
+
+jobs:
+  deploy-frontend:
+    name: Deploy frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # The OIDC trust policy permits only the master branch.
+    if: github.ref == 'refs/heads/master'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate website directory
+        run: |
+          test -d website
+          test -f website/index.html
+
+      - name: Inject Lambda Function URL
+        env:
+          LAMBDA_FUNCTION_URL: ${{ vars.LAMBDA_FUNCTION_URL }}
+        run: |
+          test -n "$LAMBDA_FUNCTION_URL"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path("website/index.html")
+          placeholder = "__LAMBDA_FUNCTION_URL__"
+          function_url = os.environ["LAMBDA_FUNCTION_URL"]
+
+          content = path.read_text(encoding="utf-8")
+
+          if placeholder not in content:
+              raise SystemExit(
+                  f"Placeholder {placeholder} was not found in {path}"
+              )
+
+          path.write_text(
+              content.replace(placeholder, function_url),
+              encoding="utf-8"
+          )
+          PY
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v6.1.1
+        with:
+          role-to-assume: ${{ vars.AWS_FRONTEND_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: frontend-${{ github.run_id }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Upload website to Amazon S3
+        run: |
+          aws s3 sync website/ "s3://${{ vars.AWS_S3_BUCKET }}" \
+            --delete \
+            --only-show-errors
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
+
+      - name: Create deployment summary
+        run: |
+          {
+            echo "### Frontend deployment completed"
+            echo ""
+            echo "- Branch: ${GITHUB_REF_NAME}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- S3 bucket: ${{ vars.AWS_S3_BUCKET }}"
+            echo "- CloudFront distribution: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}"
+          } >> "$GITHUB_STEP_SUMMARY"
