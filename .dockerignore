@@ -1,0 +1,9 @@
+.git
+.github
+IaC
+**/__pycache__
+**/.pytest_cache
+**/*.py[cod]
+*.tfstate
+*.tfstate.*
+.DS_Store
