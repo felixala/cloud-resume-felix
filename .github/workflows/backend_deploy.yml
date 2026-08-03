@@ -3,14 +3,14 @@ name: Backend CI/CD
 on:
   pull_request:
     branches:
-      - main
+      - master
     paths:
       - "IaC/**"
       - ".github/workflows/backend_deploy.yml"
 
   push:
     branches:
-      - main
+      - master
     paths:
       - "IaC/**"
       - ".github/workflows/backend_deploy.yml"
@@ -71,7 +71,7 @@ jobs:
     needs: validate
 
     if: >
-      github.ref == 'refs/heads/main' &&
+      github.ref == 'refs/heads/master' &&
       (github.event_name == 'push' ||
        github.event_name == 'workflow_dispatch')
 
